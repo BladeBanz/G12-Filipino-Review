@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Messenger: @Rekz Banz</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 30px;
+      background-color: #19124e;
+      color: #fefeff;
+    }
+    h1 { color: #fefeff; }
+    button {
+      padding: 15px 30px;
+      font-size: 20px;
+      background-color: #007BFF;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 20px;
+    }
+    button:hover { background-color: #0056b3; }
+    button:disabled { background-color: #ccc; cursor: default; }
+    .question { margin-bottom: 25px; }
+    .correct { color: #00ff88; font-weight: bold; }
+    .wrong { color: #ff5577; font-weight: bold; }
+    .highlight { margin-top: 10px; }
+    input[type="radio"] { transform: scale(1.5); margin-right: 10px; }
+    #finishBtn { font-size: 2em; padding: .1em 1em; }
+    .nav-buttons { margin-top: 20px; display: flex; gap: 10px; }
+
+    #codeInput {
+      font-size: 15px;
+      padding: 10px 20px;
+      width: 300px;
+      border-radius: 8px;
+      border: 2px solid #888;
+    }
+
+    #codeInput::placeholder { font-size: 15px; }
+
+    /* Smaller font for Enter Access Code */
+    #accessSection h2 {
+      font-size: 1.2em;
+      margin-bottom: 10px;
+    }
+
+    /* Style for filename display above access code */
+    #fileDisplay {
+      font-size: 1.3em;
+      font-weight: bold;
+      margin-bottom: 5px;
+      color: #9fe3ff;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="accessSection">
+    <p id="fileDisplay"></p> <!-- NEW filename display -->
+    <h2>Enter Access Code</h2>
+    <input type="password" id="codeInput" placeholder="Enter code here" />
+    <br>
+    <button type="button" id="accessSubmit" style="padding:10px 40px; font-size:20px;">Login</button>
+    <p id="message" aria-live="polite"></p>
+    <br>
+    <p id="tipsArea">Loading tips...</p>
+  </div>
+
+  <div id="mainContent" style="display:none;">
+    <div id="reviewerSection">
+      <h1>Reviewer: Filipino</h1>
+ 
+ 
+      <button onclick="showQuiz()">Start Quiz</button>
+    </div>
+
+    <div id="quizSection" style="display:none;">
+      <h1>Quiz: Filipino</h1>
+      <p style="font-size: 15px; font-weight: 600; margin: 0;">Multiple-Choice Quiz (random items)</p>
+      <form id="quizForm"></form>
+
+      <div class="nav-buttons">
+        <button id="finishBtn">Score</button>
+        <button type="button" onclick="refreshQuiz()">Restart Quiz</button>
+        <button type="button" onclick="backToReviewer()">Reviewer</button>
+      </div>
+      <div id="result" class="highlight"></div>
+    </div>
+  </div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  // ===== Display filename on login page =====
+  const quizTitleEl = document.querySelector("#quizSection h1");
+  const displayFileName = quizTitleEl ? quizTitleEl.textContent.replace("Quiz: ", "").trim() : "index.html";
+  const fileDisplay = document.getElementById("fileDisplay");
+  if (fileDisplay) fileDisplay.textContent = displayFileName;
+
+  // ===== SETTINGS =====
+  const BIN_URL_CODE = "https://api.jsonbin.io/v3/b/6912958fd0ea881f40e0cafc/latest";
+  const BIN_URL_TIPS = "https://api.jsonbin.io/v3/b/68f1b652ae596e708f180d5d/latest";
+  const MASTER_KEY_CODE = "$2a$10$CvK4w8DTXZ1//5H1cpGQIerIT8Kzvk0FQHosdNm.XS0Q9n6sMmaf6";
+  const MASTER_KEY_TIPS = "$2a$10$CvK4w8DTXZ1//5H1cpGQIerIT8Kzvk0FQHosdNm.XS0Q9n6sMmaf6";
+
+  // === LOGGER BIN (Access Log) ===
+  const BIN_URL_LOG = "https://api.jsonbin.io/v3/b/6911a123d0ea881f40df102a";
+  const MASTER_KEY_LOG = MASTER_KEY_CODE;
+
+  // === SCORE LOG BIN (New) ===
+  const BIN_URL_SCORE = "https://api.jsonbin.io/v3/b/6912985cd0ea881f40e0cf7c";
+  const MASTER_KEY_SCORE = MASTER_KEY_CODE;
+
+  // ===== ELEMENTS =====
+  const accessSection = document.getElementById("accessSection");
+  const mainContent = document.getElementById("mainContent");
+  const codeInput = document.getElementById("codeInput");
+  const accessSubmit = document.getElementById("accessSubmit");
+  const message = document.getElementById("message");
+  const tipsArea = document.getElementById("tipsArea");
+
+  // ===== HELPERS =====
+  function findStringKey(obj, keyName) {
+    if (!obj || typeof obj !== "object") return undefined;
+    for (const k in obj) {
+      if (k.toLowerCase() === keyName.toLowerCase() && typeof obj[k] === "string") {
+        return obj[k];
+      }
+      const v = obj[k];
+      if (typeof v === "object") {
+        const nested = findStringKey(v, keyName);
+        if (nested) return nested;
+      }
+    }
+  }
+
+  async function getDeviceInfo() {
+    const uaData = navigator.userAgentData || {};
+    const ua = navigator.userAgent;
+    const platform = navigator.platform;
+    const language = navigator.language;
+    const screenResolution = `${window.screen.width}x${window.screen.height}`;
+    const browserVersion = uaData.brands
+      ? uaData.brands.map(b => `${b.brand} ${b.version}`).join(", ")
+      : ua;
+
+    // Determine general device type
+    const uaLower = ua.toLowerCase();
+    let deviceType = "desktop";
+    if (/mobi|iphone|android/i.test(uaLower)) {
+      deviceType = "mobile";
+    } else if (/tablet|ipad|nexus 7|nexus 10/i.test(uaLower)) {
+      deviceType = "tablet";
+    }
+
+    // Get approximate IP + region/country info (non-identifying)
+    let networkInfo = "Unavailable";
+    try {
+      const res = await fetch("https://ipapi.co/json/");
+      if (res.ok) {
+        const info = await res.json();
+        networkInfo = {
+          ip: info.ip,
+          city: info.city,
+          region: info.region,
+          country: info.country_name,
+          org: info.org
+        };
+      }
+    } catch {
+      networkInfo = "Network lookup failed";
+    }
+
+    // Optional: request geolocation with user consent
+    const location = await new Promise(resolve => {
+      if (!navigator.geolocation) return resolve("Geolocation not supported");
+      navigator.geolocation.getCurrentPosition(
+        pos => resolve({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          accuracy: pos.coords.accuracy
+        }),
+        () => resolve("Permission denied or unavailable"),
+        { timeout: 5000 }
+      );
+    });
+
+    return {
+      ua,
+      browserVersion,
+      platform,
+      language,
+      screenResolution,
+      deviceType,
+      networkInfo,
+      location
+    };
+  }
+
+  async function saveLoginToJsonBin(codeUsed) {
+    try {
+      // get filename from quiz title h1
+      const quizTitleElLocal = document.querySelector("#quizSection h1");
+      const fileName = quizTitleElLocal ? quizTitleElLocal.textContent.replace("Quiz: ", "").trim() : "index.html";
+
+      const getRes = await fetch(`${BIN_URL_LOG}/latest`, {
+        headers: { "X-Master-Key": MASTER_KEY_LOG }
+      });
+      const data = await getRes.json();
+      const logs = Array.isArray(data.record) ? data.record : [];
+
+      const deviceInfo = await getDeviceInfo();
+
+      logs.push({
+        event: "Login Access",
+        accessCode: codeUsed,
+        filename: fileName,
+        timestamp: new Date().toLocaleString(),
+        device: deviceInfo
+      });
+
+      await fetch(BIN_URL_LOG, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Master-Key": MASTER_KEY_LOG
+        },
+        body: JSON.stringify(logs)
+      });
+
+      console.log(`✅ Login logged successfully (file: ${fileName}).`);
+    } catch (err) {
+      console.error("❌ Error logging to JSONBin:", err);
+    }
+  }
+
+  // ===== LOAD TIPS =====
+  async function loadTips() {
+    try {
+      const resp = await fetch(BIN_URL_TIPS, {
+        headers: { "X-Master-Key": MASTER_KEY_TIPS, "Content-Type": "application/json" }
+      });
+      const data = await resp.json();
+      const tipsText =
+        findStringKey(data, "tips") ||
+        "Tips: <br>Press Enter after typing the code.<br>Stay online when entering.<br>For help, contact juan.tipak@gmail.com.";
+      tipsArea.innerHTML = tipsText;
+    } catch (err) {
+      console.error("Tips fetch error:", err);
+      tipsArea.innerHTML =
+        "Could not load page. Please check your internet connection.";
+    }
+  }
+  loadTips();
+
+  // === NEW FUNCTION: Save Quiz Score to JSONBin ===
+  async function saveScoreToJsonBin(score, total) {
+    try {
+      const quizTitleElLocal = document.querySelector("#quizSection h1");
+      const fileName = quizTitleElLocal ? quizTitleElLocal.textContent.replace("Quiz: ", "").trim() : "index.html";
+
+      const getRes = await fetch(`${BIN_URL_SCORE}/latest`, {
+        headers: { "X-Master-Key": MASTER_KEY_SCORE }
+      });
+      const data = await getRes.json();
+      const logs = Array.isArray(data.record) ? data.record : [];
+      const deviceInfo = await getDeviceInfo();
+
+      logs.push({
+        event: "Quiz Score",
+        score: `${score}/${total}`,
+        filename: fileName,
+        timestamp: new Date().toLocaleString(),
+        device: deviceInfo
+      });
+
+      await fetch(BIN_URL_SCORE, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Master-Key": MASTER_KEY_SCORE
+        },
+        body: JSON.stringify(logs)
+      });
+      console.log("✅ Quiz score saved to JSONBin successfully.");
+    } catch (err) {
+      console.error("❌ Error saving quiz score:", err);
+    }
+  }
+
+  // ===== LOCAL STORAGE =====
+  const fileName = window.location.pathname.split("/").pop() || "default";
+  const storageKey = "savedAccessCode_" + fileName.replace(/\W+/g, "_");
+  const savedCode = localStorage.getItem(storageKey);
+  if (savedCode) codeInput.value = savedCode;
+  codeInput.addEventListener("input", () =>
+    localStorage.setItem(storageKey, codeInput.value)
+  );
+
+  // ===== LOGIN HANDLER =====
+  codeInput.addEventListener("keyup", (e) => {
+    if (e.key === "Enter") accessSubmit.click();
+  });
+
+  accessSubmit.addEventListener("click", async () => {
+    const input = codeInput.value.trim();
+    if (!input) {
+      message.textContent = "Please enter the access code.";
+      return;
+    }
+
+    accessSubmit.disabled = true;
+    codeInput.disabled = true;
+    message.textContent = "Checking...";
+
+    try {
+      const resp = await fetch(BIN_URL_CODE, {
+        headers: { "X-Master-Key": MASTER_KEY_CODE, "Content-Type": "application/json" }
+      });
+
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+
+      const remoteCode =
+        findStringKey(data, "accessCode") ||
+        findStringKey(data, "code") ||
+        findStringKey(data, "access");
+
+      if (!remoteCode) {
+        message.textContent = "Access code not found in storage record.";
+        throw new Error("No accessCode in JSON");
+      }
+
+      if (input === remoteCode.trim()) {
+        accessSection.style.display = "none";
+        mainContent.style.display = "block";
+        message.textContent = "";
+        saveLoginToJsonBin(input); // <<== AUTO LOG TO JSONBIN
+        setTimeout(() => {
+          const btn = document.querySelector("#mainContent button");
+          if (btn) btn.focus();
+        }, 100);
+      } else {
+        message.textContent = "Wrong code. Please contact: juan.tipak@gmail.com";
+        localStorage.removeItem(storageKey);
+        accessSubmit.disabled = false;
+        codeInput.disabled = false;
+      }
+    } catch (err) {
+      console.error("Access fetch error:", err);
+      message.textContent = "Error fetching code. Check console for details.";
+      accessSubmit.disabled = false;
+      codeInput.disabled = false;
+    }
+  });
+
+  // ===== QUIZ LOGIC =====
+  const pool = [
+  
+{q: "Ano ang pangunahing layunin ng flyer o leaflet?", choices: ["Magbigay ng impormasyon sa publiko","Magsulat ng mahabang tala","Magbigay ng legal na payo","Mag-imbestiga ng krimen","Magrekord ng voice memo","Magluto ng recipe"], correctIndex: 0}, {q: "Alin sa mga sumusunod ang karaniwang katangian ng leaflet kumpara sa flyer?", choices: ["Mas detalyado at maaaring may fold","Mas maikli at isang pahina lang","Walang teksto","Palaging kulay pula","Hindi ginagamit para sa advertisement","Walang contact info"], correctIndex: 0}, {q: "Ano ang 'Call to Action' sa isang flyer/leaflet?", choices: ["Panawagan na bisitahin o kontakin","Isang larawan lamang","Tekstong walang saysay","Listahan ng resources","Mensahe para lamang sa loob ng organisasyon","Isang legal na disclaimer"], correctIndex: 0}, {q: "Ano dapat kasama bilang contact information sa flyer/leaflet?", choices: ["Telepono o address para sa pakikipag-ugnayan","Buong kasaysayan ng kumpanya","Reseta ng gamot","Buong financial statement","Personal na liham","Listahan ng lahat ng empleyado"], correctIndex: 0}, {q: "Alin ang hindi kabilang sa mga nilalaman na binanggit para sa flyer/leaflet?", choices: ["Mahahabang sanaysay","Larawan","Nilalaman o impormasyon","Call to action","Contact information","Pamagat"], correctIndex: 0}, {q: "Ano ang ibig sabihin ng 'Kalitawan (Clarity)' bilang prinsipyo sa disenyo?", choices: ["Madalimg basahin at maintindihan","Maraming kulay at dekorasyon","Matalim at nakakagulat na font","Walang espasyo sa pagitan ng linya","Gumagamit ng jargon","Maraming larawan lang"], correctIndex: 0}, {q: "Sa prinsipyo ng disenyo, ano ang 'Kaayusan' (order)?", choices: ["Maayos ang pagkakasunod-sunod ng impormasyon","Magulo ang layout","Walang hierarchy sa teksto","Gumamit ng random na font sizes","Walang pagkakaiba ang mga seksyon","Maraming watermark"], correctIndex: 0}, {q: "Ano ang papel ng kulay sa disenyo ayon sa imahe?", choices: ["Gumamit ng kulay na tumutugma sa mensahe","Palitan ang lahat ng teksto ng kulay pula","Gumamit ng hindi nababasa na kulay","Iwasan ang lahat ng larawan","Gumamit ng gradient lamang","Gumamit ng neon na font"], correctIndex: 0}, {q: "Ano ang mahalagang katangian ng larawang ginagamit sa flyer?", choices: ["Dapat may kaugnayan at malinaw","Dapat malabo at decorative lamang","Dapat palaging itim at puti","Dapat walang kaugnayan sa teksto","Dapat maliit at hindi makikita","Dapat icon lang"], correctIndex: 0}, {q: "Ano ang ibig sabihin ng 'Typography' sa konteksto ng disenyo?", choices: ["Ayusin ang gramatika at presentasyon ng font","Pagguhit ng larawan","Pagtatakda ng presyo","Layout ng pahina lamang","Uri ng papel","Pagsusulat ng mahahabang talata"], correctIndex: 0}, {q: "Alin sa mga sumusunod ang isang teknik sa pagsulat ng naratibong ulat (narratibong ulat)?", choices: ["Sundin ang SAKS-BP (Sino, Ano, Kailan, Saan, Bakit, Paano)","Gumamit ng larawan lang","Ilista lang ang resources","Isulat bilang dialogo ng dalawang tao","Huwag magbigay ng detalye","Isulat nang walang simula"], correctIndex: 0}, {q: "Ano ang layunin ng naratibong ulat ayon sa tala?", choices: ["Ilista ang mga pangyayari sa kronolohikal na ayos","Magbigay ng opinyon ng editor","Magsagawa ng pananaliksik pang-agham","Magbenta ng produkto","Magsulat ng memo sa pulitika","Maglathala ng tula"], correctIndex: 0}, {q: "Ano ang tampok na istruktura na binabangit para sa balangkas ng naratibong ulat?", choices: ["Panimula, Katawan, Kasukdulan, Konklusyon","Pamagat lang","Talatang walang pagkakabalangkas","Mga bullet lamang","Index at glossary","Talumpati"], correctIndex: 0}, {q: "Ano ang dapat iwasan kapag nagsusulat ng naratibong ulat?", choices: ["Paggamit ng hindi tunay na pangyayari bilang totoo","Paggamit ng kronolohiya ng mga pangyayari","Pagbibigay ng detalyadong oras at lugar","Paggamit ng unang panauhan kung nararapat","Paglalarawan ng mga tauhan","Pagsunod sa tamang ayos"], correctIndex: 0}, {q: "Ano ang ibig sabihin ng SAKS-BP na ginagamit sa pagsulat ng naratibong ulat?", choices: ["Sino, Ano, Kailan, Saan, Bakit, Paano","Subtitle, Author, Keywords, Sources","Start, Analyze, Keep, Stop","Simple, Accurate, Known, Brief","Subject, Action, Knowledge, Purpose","Scan, Ask, Keep, Publish"], correctIndex: 0}, {q: "Ano ang pangunahing gamit ng manwal ng pagbuo (assembly manual)?", choices: ["Tumutukoy sa mga hakbang sa pagbuo o pagkakabit ng isang bagay","Naglalaman ng menu ng restaurant","Isang anunsyo sa barangay","Tala ng feasibility study","Listahan ng glossary","Resume ng empleyado"], correctIndex: 0}, {q: "Ano ang nilalaman ng user manual o owner's manual?", choices: ["Impormasyon tungkol sa paggamit ng mekanismo at pangunahing operasyon","Mga recipe ng pagkain","Mga tala para sa feasibility study","Balangkas ng naratibong ulat","Mga paalala at anunsyo","Listahan ng mga supplier"], correctIndex: 0}, {q: "Alin ang tinuturo ng operational manual?", choices: ["Paano gamitin ang mekanismo at maintenance guide","Paano gumawa ng menu","Paano sumulat ng malaking ulat akademiko","Paano mag-advertise","Paano magdisenyo ng flyer","Paano mag-navigate sa internet"], correctIndex: 0}, {q: "Ano ang layunin ng service manual o technical manual na binanggit?", choices: ["Magbigay ng routine maintenance, troubleshooting, at pag-aayos","Maglathala ng balita","Magbigay ng legal na payo","Mag-advertise ng produkto","Magturo ng pagluluto","Maglista ng contact info"], correctIndex: 0}, {q: "Ano ang ibig sabihin ng 'Mga Komponent ng Manwal' para sa awdyensya?", choices: ["Dapat simple, malinaw, at madaling maunawaan ng gagamit","Dapat mahaba at teknikal","Dapat walang ilustrasyon","Dapat nakasulat sa banyagang wika","Dapat confidential lang","Dapat artistic lang"], correctIndex: 0}, {q: "Ano ang inilalagay sa 'Pahina ng Pamula' ng manwal ayon sa larawan?", choices: ["May malinaw na pamagat ng manwal","Buong history ng kumpanya","Listahan ng mga empleyado","Mga larawan lamang","Isang mahabang bibliography","Isang poster"], correctIndex: 0}, {q: "Ano ang tungkulin ng 'Talaan ng Nilalaman' sa manwal?", choices: ["Nagtatala ng mga pahina at pagkakasunod-sunod ng mga paksa o gawain","Naglalaman ng contact info","Nagbibigay ng presyo ng produkto","Naglilista ng recipes","Naglalaman ng glossary lamang","Nagpapakita ng larawan ng produkto"], correctIndex: 0}, {q: "Ano ang dapat lamanin ng navigational tips sa manwal?", choices: ["Biswal na simbolo o gabay para madaling maunawaan ang mga bahagi","Mahahabang talata ng teknikal na jargon","Walang heading","Isang advertisement","Isang legal disclaimer","Listahan ng mga empleyado"], correctIndex: 0}, {q: "Ano ang karaniwang kasama sa seksyong 'Gamit at Tungkulin' ng manwal?", choices: ["Paliwanag kung paano ginagamit ang tagay o mekanismo","Menu ng pagkain","Balangkas ng feasibility study","Listahan ng mga supplier","Narrative report","Anunsyo ng barangay"], correctIndex: 0}, {q: "Ano ang nilalaman ng 'Apendiks' sa manwal?", choices: ["Mga dokumentong may kaugnayan sa nilalaman ng manwal","Mga larawan lang","Mga personal na kwento","Listahan ng mga empleyado","Mga patalastas","Mga recipe"], correctIndex: 0}, {q: "Ano ang layunin ng glossary sa manwal?", choices: ["Ilahad ang mga terminong teknikal at kahulugan","Magbigay ng mga larawan","Maglista ng presyo","Magbigay ng timeline ng proyekto","Maglista ng menu items","Maglagay ng promotional codes"], correctIndex: 0}, {q: "Ano ang pangunahing layunin ng feasibility study ayon sa file?", choices: ["Alamin kung ang proyekto ay maisasagawa at kapaki-pakinabang","Magtakda ng presyo ng pagkain","Magbigay ng user manual","Magsulat ng anunsiyo","Magturo ng narrative writing","Magsagawa ng panayam"], correctIndex: 0}, {q: "Alin ang kabilang sa mga uri ng feasibility na binanggit?", choices: ["Market, Technical, Financial/Economic, Organizational/Managerial","Only Marketing Feasibility","Only Technical Feasibility","Only Legal Feasibility","Only Social Feasibility","Only Environmental Feasibility"], correctIndex: 0}, {q: "Ano ang nilalaman ng 'Market Feasibility' sa tala?", choices: ["Pagsusuri sa merkado — target customer, laki, at potensyal","Detalye ng calibration ng makina","Glossary ng terms","Listahan ng mga recipes","Balangkas ng naratibo","Pahina ng pamagat"], correctIndex: 0}, {q: "Ano ang bahagi ng feasibility study na tumutukoy sa paglalarawan ng produkto at supplier?", choices: ["Produkto o Serbisyo","Presyo at Kita","Plano ng Aksyon","Puhunan o Kapital","Rekomendasyon","Executive Summary"], correctIndex: 0}, {q: "Ano ang nilalaman ng 'Presyo at Kita' seksyon sa feasibility study?", choices: ["Pagpaplano ng presyo para matugunan ang gastos at makamit ang kita","Paglalarawan ng produkto","Lokasyon ng negosyo","Pagsusuri ng merkado","Apendiks","Technical specifications"], correctIndex: 0}, {q: "Ano ang ibig sabihin ng 'Executive Summary' sa feasibility study konteksto ayon sa imahe?", choices: ["Maikling buod ng plano at mahalagang punto","Listahan ng supply vendors","Buong manwal ng operasyon","Menu ng pagkain","Narrative report","Glossary"], correctIndex: 0}, {q: "Ano ang inirerekomendang laman ng 'Plano ng Aksyon' sa feasibility study?", choices: ["Ideya, layunin, mga taong kasangkot, personal na layunin, merkado","Menu items","Narrative chronology","Glossary","Call to Action para sa flyer","Contact info lamang"], correctIndex: 0}, {q: "Ano ang layunin ng 'Pangkalahatang Pagtitingin sa Negosyo' seksyon?", choices: ["Tukuyin ang lokasyon, site plan/floor plan, assets, disenyo at gamit","Magsulat ng naratibong ulat","Maglista ng mga empleyado","Magbigay ng user manual","Mag-advertise ng produkto","Magluto ng recipe"], correctIndex: 0}, {q: "Ano ang sinasabi tungkol sa kahalagahan ng feasibility study?", choices: ["Nakatutulong sa pagpaplano at desisyon at nagbibigay ng gabay bago mag-invest","Naglalarawan ng menu ng restaurant","Hindi mahalaga sa negosyo","Para lamang sa internal memo","Pang-promotional lang","Pang-aliw lamang"], correctIndex: 0}, {q: "Ano ang layunin ng paalala (notice) ayon sa mga screenshot?", choices: ["Magbigay impormasyon o paalala na madaling makita ng mga tao","Maglathala ng nobela","Magbigay ng recipe","Mag-ayos ng manwal","Magtanong sa research participants","Magbigay ng listahan ng presyo"], correctIndex: 0}, {q: "Ano ang katangian ng pasalita (babala) ayon sa imahe?", choices: ["Maliksi at may diin; ginagamit para mag-ingat o umiwas sa kapahamakan","Mahaba at detalyado","Para sa legal na kontrata lamang","Hindi para sa publiko","Para lamang sa internal memo","Walang larawan"], correctIndex: 0}, {q: "Ano ang pagkakaiba ng pasalita, pasalita/babala, at anunsiyo sa layunin ayon sa tala?", choices: ["Pasalita: magpaalala; Babala: magbigay proteksyon; Anunsiyo: magpabatid ng impormasyon","Walang pagkakaiba","Lahat ay para magbenta lang","Isa lang ang ginagamit sa paaralan","Lahat ay pareho sa format","Hindi ginagamit sa komunikasyon"], correctIndex: 0}, {q: "Ano ang dapat isaalang-alang sa paggawa ng menu ng pagkain?", choices: ["Hitsura, Tekstura, Lasa at paglalarawan ng pagkain","Mga warranty at manual","Kronolohiya ng pangyayari","Glossary ng termino","SAKS-BP","Executive summary"], correctIndex: 0}, {q: "Ano ang pinakapinapahalagahang aspeto sa paglalarawan ng pagkain?", choices: ["Lasa (flavor)","Presyo","Lokasyon ng restaurant","Executive summary","Glossary","Narrative chronology"], correctIndex: 0}, {q: "Ano ang ibig sabihin ng 'Tagatangkil​ik' sa konteksto ng menu?", choices: ["Mga taong bumibili o kumakain sa isang kainan","Listahan ng recipes","Technical feasibility","Narrative report authors","Manwal users","Apendiks"], correctIndex: 0}, {q: "Ano ang payo kapag nagsusulat ng paglalarawan ng pagkain para sa menu?", choices: ["Gamitin ang payak at tiyak na mga salita","Gumamit ng komplikadong jargon","Isulat nang hindi nababasa","Gumamit ng maling impormasyon","Gumamit lang ng technical specs","Huwag magbigay ng lasa"], correctIndex: 0}, {q: "Ano ang dapat iwasan sa pagdisenyo ng menu ayon sa gabay?", choices: ["Iwasan ang tipograpikal na pagkakamali","Gamitin ang maling imahe ng pagkain","Huwag magbigay ng presyo","Ilagay ang lahat ng text sa isang paragraph","Gumamit ng masyadong maraming kulay nang hindi organisado","Ilahad ang hindi totoo"], correctIndex: 0}, {q: "Ano ang inirerekomendang istratehiya para sa paggamit ng jargon o teknikal na termino sa manwal at menu?", choices: ["Gumamit lamang kung ang awdyens ay may teknikal na kaalaman","Gumamit palagi ng jargon","Huwag kailanman gamitin ang simpleng salita","Palitan ang lahat ng salita ng simbolo","Gumamit ng foreign language","Gumamit ng emoticons lamang"], correctIndex: 0}, {q: "Ano ang katangian ng mahusay na paalala o anunsiyo ayon sa mga larawan?", choices: ["Maayos at malinaw ang impormasyon at tumutugon sa Sino, Ano, Saan, Kailan, Bakit","Mahaba at magulo","Puno ng teknikal na detalye","Walang pamagat","Walang target audience","Confidential lamang"], correctIndex: 0}, {q: "Ano ang dapat lamanin ng 'Halimbawa' sa bahagi ng Paalala/Babala/Anunsiyo?", choices: ["Halimbawa ng teksto tulad ng 'Anunsiyo: May libreng bakuna sa Barangay Hall ngayong Sabado.'","Buong feasibility study","User manual excerpts","Menu items","Narrative report","Graphic design template"], correctIndex: 0}, {q: "Ano ang dapat tandaan kapag bumubuo ng bulleted list para sa mga gabay ayon sa screenshot?", choices: ["Gumamit ng malinaw at organisadong detalye upang maging mabilis basahin at epektibong maiproseso","Gawing mahahabang pangungusap na walang bullets","Gumamit ng kumplikadong jargon sa lahat ng items","Ilagay ang lahat sa italics","Gumamit ng maraming kulay sa bawat bullet","Huwag gumamit ng heading"], correctIndex: 0}, {q: "Sa paggawa ng manual, bakit mahalaga ang paglilista ng mga hakbang na magkakasunod?", choices: ["Upang madaling sundan at maiwasan ang error sa paggamit","Para magmukhang komplikado","Para magdagdag ng filler content","Para iwasan ang ilustrasyon","Para itago ang impormasyon","Para humaba ang manwal"], correctIndex: 0}, {q: "Ano ang inirerekomendang estilo sa pagsulat ng manwal (tone)?", choices: ["Pormal ngunit natural at madaling maintindihan","Sobordad at poetic","Masyadong teknikal at mahaba","Walang grammar","Misteryoso at malabo","Lamangan ng advertising slogans"], correctIndex: 0}, {q: "Ano ang dapat lamanin ng 'Talaan ng Nilalaman' at 'Index' sa manwal?", choices: ["Mga pahina at pagkakasunod-sunod ng mga paksa at gawain","Listahan ng mga larawan","Menu items","Narrative chronology","Executive summary","Call to action lamang"], correctIndex: 0}, {q: "Ano ang sinasabi tungkol sa paggamit ng numbered lists sa gabay/manwal?", choices: ["Nagbibigay ng malinaw na hakbang-hakbang na proseso","Dapat iwasan palagi","Walang saysay sa manual","Ginagamit lamang sa fiction","Ginagamit lamang sa menu","Ginagamit para sa bibliography"], correctIndex: 0}, {q: "Ano ang dapat isama sa 'Mga Payo sa Pagsulat ng Manwal' ayon sa mga screenshot?", choices: ["Iwasan ang komplikadong salita, gumamit ng payak na salita, buuin ang acronym sa unang banggit","Gumamit ng masyadong mahahabang pangungusap","Huwag gumamit ng headings","Gumamit ng slang","Gumamit ng ibang wika","Huwag maglagay ng halimbawa"], correctIndex: 0}, {q: "Ano ang inaasahang epekto kapag consistent ang terminolohiya, tono, at estilo sa manwal?", choices: ["Nagbibigay ng maayos at propesyonal na daloy sa kabuuan ng manwal","Nagiging magulo ang manwal","Nagpapababa ng kredibilidad","Nagiging decorative lamang","Nagdaragdag ng jargon","Walang epekto"], correctIndex: 0}, {q: "Ano ang dapat gawin sa pagbuo ng acronyms ayon sa payo sa manwal?", choices: ["Buuin ang acronym sa unang banggit upang maging malinaw ang kahulugan","Huwag kailanman gamitin ang acronyms","Palaging iwasan ang pagbibigay-kahulugan","Gamitin ang acronyms nang walang paliwanag","Gumamit ng iba't ibang acronyms para sa parehong termino","Isulat ang acronym sa hulihan ng manwal lamang"], correctIndex: 0}
+
+
+  ];
+
+  function pickRandom(arr, n) {
+    const copy = [...arr];
+    const result = [];
+    while (result.length < n && copy.length > 0) {
+      const idx = Math.floor(Math.random() * copy.length);
+      result.push(copy.splice(idx, 1)[0]);
+    }
+    return result;
+  }
+
+  function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+  }
+
+  function selectRandomChoices(item) {
+    const correctChoice = item.choices[item.correctIndex];
+    let others = item.choices.filter((_, idx) => idx !== item.correctIndex);
+    shuffleArray(others);
+    let selected = [correctChoice, ...others.slice(0, 4)];
+    shuffleArray(selected);
+    item.correctIndex = selected.indexOf(correctChoice);
+    item.choices = selected;
+  }
+
+  let quizItems = [];
+
+  window.showQuiz = function () {
+    document.getElementById("reviewerSection").style.display = "none";
+    document.getElementById("quizSection").style.display = "block";
+    buildQuiz();
+  };
+
+  window.backToReviewer = function () {
+    document.getElementById("quizSection").style.display = "none";
+    document.getElementById("reviewerSection").style.display = "block";
+    document.getElementById("quizForm").innerHTML = "";
+    document.getElementById("result").innerHTML = "";
+  };
+
+  window.refreshQuiz = function () {
+    document.getElementById("quizForm").innerHTML = "";
+    document.getElementById("result").innerHTML = "";
+    document.getElementById("finishBtn").disabled = false;
+    buildQuiz();
+  };
+
+  function buildQuiz() {
+    quizItems = pickRandom(pool, Math.min(20, pool.length));
+    const form = document.getElementById("quizForm");
+    form.innerHTML = "";
+    quizItems.forEach((item, i) => {
+      selectRandomChoices(item);
+      const div = document.createElement("div");
+      div.className = "question";
+      const q = document.createElement("p");
+      q.textContent = `${i + 1}. ${item.q}`;
+      div.appendChild(q);
+      item.choices.forEach((choice, idx) => {
+        const label = document.createElement("label");
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = `q${i}`;
+        radio.value = idx;
+        label.appendChild(radio);
+        label.appendChild(document.createTextNode(" " + choice));
+        div.appendChild(label);
+        div.appendChild(document.createElement("br"));
+      });
+      form.appendChild(div);
+    });
+  }
+
+  document.getElementById("finishBtn").addEventListener("click", async function () {
+    let score = 0;
+    const total = quizItems.length;
+    for (let i = 0; i < total; i++) {
+      const radios = document.querySelectorAll(`input[name="q${i}"]`);
+      let selected = -1;
+      radios.forEach(r => { if (r.checked) selected = parseInt(r.value); });
+      const div = document.getElementById("quizForm").children[i];
+      if (selected === quizItems[i].correctIndex) {
+        score++;
+        div.insertAdjacentHTML("beforeend", "<div class='correct'>✔ Correct</div>");
+      } else {
+        const correctAnswer = quizItems[i].choices[quizItems[i].correctIndex];
+        div.insertAdjacentHTML("beforeend", `<div class='wrong'>✘ Wrong. Correct: ${correctAnswer}</div>`);
+      }
+      radios.forEach(r => r.disabled = true);
+    }
+    document.getElementById("result").innerHTML = `<h2>Your Score: ${score} / ${total}</h2>`;
+    this.disabled = true;
+
+    // 🧠 Save score to JSONBin
+    await saveScoreToJsonBin(score, total);
+  });
+});
+</script>
+</body>
+</html>
